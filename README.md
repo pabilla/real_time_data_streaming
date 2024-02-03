@@ -63,9 +63,35 @@ On lance le fichier dans le terminal grâce à
  python kafka-producer.py
 ```
 
-### 5. Traitement des Données avec Spark Streaming (spark.py)
-Mettez en place un consumer Spark qui récupère les données du topic velib-projet.
-Dans ce consumer, implémentez le traitement des données pour calculer les indicateurs suivants pour chaque code postal des stations filtrées :
+### 5. Traitement des Données avec Spark Streaming
+Un script à été implémenté dans le fichier `spark-consumer.py`  
+Un consumer Spark a été mis en place pour récupérer les données du topic velib-projet.  
+On initialise tout d'abord Spark:  
+```python
+spark = (SparkSession
+             .builder
+             .appName("velib-analysis")
+             .master("local[1]")
+             .config("spark.sql.shuffle.partitions", 1)
+             .config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.2.3")
+             .getOrCreate()
+             )
+```
+et on vient récupérer les données dans le topic voulu
+
+```python
+kafka_df = (spark
+                .readStream
+                .format("kafka")
+                .option("kafka.bootstrap.servers", "localhost:9092")
+                .option("subscribe", "velib-projet")
+                .option("startingOffsets", "earliest")
+                .load()
+                )
+```
+
+On veut créer un Dataframe. On applique le traitement sur les données et on initialise le schéma du Dataframe.  
+Dans ce consumer, on implémente le traitement des données pour calculer les indicateurs suivants pour chaque code postal des stations filtrées :
 - Le nombre total de vélos disponibles.
 - Le nombre total de vélos mécaniques disponibles.
 - Le nombre total de vélos électriques disponibles.

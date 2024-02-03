@@ -41,7 +41,7 @@ def velib_producer():
         for message in data:
             producer.send("velib-projet", message)
             print("added:", message)
-        time.sleep(5)
+        time.sleep(10)
 
 if __name__ == '__main__':
     velib_producer()

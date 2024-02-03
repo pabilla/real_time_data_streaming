@@ -8,28 +8,23 @@ from pyspark.sql import SparkSession
 import pyspark.sql.functions as pysqlf
 import pyspark.sql.types as pysqlt
 
-# Todo: il faut créer un nouveau dataframe qui contient:
-    # - le code postal, le nombre total de vélo disponible par code postal, le nombre total de vélo mécanique par code postal, le nombre total de vélo electrique par code postal
-    # - Pousser ce nouveau dataframe vers une file kafka appéler velib-projet-clean
-
-
 if __name__ == "__main__":
-    # Initier spark
+    # Initialiser Spark
     spark = (SparkSession
              .builder
-             .appName("news")
+             .appName("velib-analysis")
              .master("local[1]")
              .config("spark.sql.shuffle.partitions", 1)
              .config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.2.3")
              .getOrCreate()
              )
 
-    # Lire les données temps réel
+    # Lire les données en temps réel depuis Kafka
     kafka_df = (spark
                 .readStream
                 .format("kafka")
                 .option("kafka.bootstrap.servers", "localhost:9092")
-                .option("subscribe", "velib")
+                .option("subscribe", "velib-projet")  # Utilisez le bon topic ici
                 .option("startingOffsets", "earliest")
                 .load()
                 )
@@ -54,7 +49,6 @@ if __name__ == "__main__":
                 .select(pysqlf.from_json(pysqlf.col("value").cast("string"), schema).alias("value"))
                 .withColumn("stationCode", pysqlf.col("value.stationCode"))
                 .withColumn("station_id", pysqlf.col("value.station_id"))
-                .withColumn("stationCode", pysqlf.col("value.stationCode"))
                 .withColumn("num_bikes_available", pysqlf.col("value.num_bikes_available"))
                 .withColumn("numBikesAvailable", pysqlf.col("value.numBikesAvailable"))
                 .withColumn("num_bikes_available_types", pysqlf.col("value.num_bikes_available_types"))
@@ -64,33 +58,36 @@ if __name__ == "__main__":
                 .withColumn("is_returning", pysqlf.col("value.is_returning"))
                 .withColumn("is_renting", pysqlf.col("value.is_renting"))
                 .withColumn("last_reported", pysqlf.col("value.last_reported"))
-                .withColumn("mechanical ", pysqlf.col("num_bikes_available_types").getItem(0).getItem("mechanical"))
-                .withColumn("ebike ", pysqlf.col("num_bikes_available_types").getItem(1).getItem("ebike"))
+                .withColumn("mechanical", pysqlf.col("num_bikes_available_types").getItem(0).getItem("mechanical"))
+                .withColumn("ebike", pysqlf.col("num_bikes_available_types").getItem(1).getItem("ebike"))
                 )
 
-    df_station_informations = spark.read.csv("stations_information.csv", header=True)
+    # Calculer les indicateurs par code postal
+    indicators_df = (kafka_df
+                     .groupBy("stationCode")
+                     .agg(pysqlf.sum("num_bikes_available").alias("total_bikes_available"),
+                          pysqlf.sum("mechanical").alias("total_mechanical_bikes"),
+                          pysqlf.sum("ebike").alias("total_electric_bikes"))
+                     )
 
-    kafka_df = (kafka_df
-                    .join(df_station_informations, on=["stationCode", "station_id"], how="left")
-                    )
+    # Préparer les données pour l'envoi vers Kafka
+    col_selections = ["stationCode", "total_bikes_available", "total_mechanical_bikes", "total_electric_bikes"]
 
-    # Préparer les données pour envoyer vers une file kafka
-    col_selections = ["stationCode", "station_id", "last_reported", "num_bikes_available"]
+    df_out = (indicators_df
+              .withColumn("value", pysqlf.to_json(pysqlf.struct(*col_selections)))
+              .select("value")
+              )
 
-    df_out = (kafka_df
-                .withColumn("value", pysqlf.to_json(pysqlf.struct(*col_selections)) )
-                .select("value")
-                )
-
+    # Écrire les résultats dans Kafka
     out = (df_out
            .writeStream
            .format("kafka")
-           .queryName("projet-esme")
+           .queryName("velib-projet-final")
            .option("kafka.bootstrap.servers", "localhost:9092")
-           .option("topic", "velib-clean")
+           .option("topic", "velib-projet-final-data")  # Utilisez le bon topic ici
            .outputMode("append")
            .option("checkpointLocation", "chk-point-dir")
-           .trigger(processingTime="1 second")
+           .trigger(processingTime="1 minute")  # Vous pouvez ajuster la fréquence d'envoi ici
            .start()
            )
 
