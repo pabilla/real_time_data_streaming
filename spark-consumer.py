@@ -24,7 +24,7 @@ if __name__ == "__main__":
                 .readStream
                 .format("kafka")
                 .option("kafka.bootstrap.servers", "localhost:9092")
-                .option("subscribe", "velib-projet")  # Utilisez le bon topic ici
+                .option("subscribe", "velib-projet")
                 .option("startingOffsets", "earliest")
                 .load()
                 )
@@ -84,10 +84,10 @@ if __name__ == "__main__":
            .format("kafka")
            .queryName("velib-projet-final")
            .option("kafka.bootstrap.servers", "localhost:9092")
-           .option("topic", "velib-projet-final-data")  # Utilisez le bon topic ici
+           .option("topic", "velib-projet-final-data")
            .outputMode("append")
            .option("checkpointLocation", "chk-point-dir")
-           .trigger(processingTime="1 minute")  # Vous pouvez ajuster la fréquence d'envoi ici
+           .trigger(processingTime="1 minute")  
            .start()
            )
 
