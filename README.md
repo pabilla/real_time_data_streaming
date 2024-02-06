@@ -94,8 +94,93 @@ On veut créer un Dataframe. On applique le traitement sur les données et on in
 Dans ce consumer, on implémente le traitement des données pour calculer les indicateurs suivants pour chaque code postal des stations filtrées :
 - Le nombre total de vélos disponibles.
 - Le nombre total de vélos mécaniques disponibles.
-- Le nombre total de vélos électriques disponibles.
+- Le nombre total de vélos électriques disponibles.  
+
+On retrouve alors les données lorsqu'on applique le schéma suivant:
+```python
+schema = pysqlt.StructType([
+    pysqlt.StructField("stationCode", pysqlt.StringType()),
+    pysqlt.StructField("station_id", pysqlt.StringType()),
+    pysqlt.StructField("num_bikes_available", pysqlt.IntegerType()),
+    pysqlt.StructField("numBikesAvailable", pysqlt.IntegerType()),
+    pysqlt.StructField("num_bikes_available_types",
+                       pysqlt.ArrayType(pysqlt.MapType(pysqlt.StringType(), pysqlt.IntegerType()))),
+    pysqlt.StructField("num_docks_available", pysqlt.IntegerType()),
+    pysqlt.StructField("numDocksAvailable", pysqlt.IntegerType()),
+    pysqlt.StructField("is_installed", pysqlt.IntegerType()),
+    pysqlt.StructField("is_returning", pysqlt.IntegerType()),
+    pysqlt.StructField("is_renting", pysqlt.IntegerType()),
+    pysqlt.StructField("last_reported", pysqlt.TimestampType())
+])
+
+kafka_df = (kafka_df
+            .select(pysqlf.from_json(pysqlf.col("value").cast("string"), schema).alias("value"))
+            .withColumn("stationCode", pysqlf.col("value.stationCode"))
+            .withColumn("station_id", pysqlf.col("value.station_id"))
+            .withColumn("num_bikes_available", pysqlf.col("value.num_bikes_available"))
+            .withColumn("numBikesAvailable", pysqlf.col("value.numBikesAvailable"))
+            .withColumn("num_bikes_available_types", pysqlf.col("value.num_bikes_available_types"))
+            .withColumn("num_docks_available", pysqlf.col("value.num_docks_available"))
+            .withColumn("numDocksAvailable", pysqlf.col("value.numDocksAvailable"))
+            .withColumn("is_installed", pysqlf.col("value.is_installed"))
+            .withColumn("is_returning", pysqlf.col("value.is_returning"))
+            .withColumn("is_renting", pysqlf.col("value.is_renting"))
+            .withColumn("last_reported", pysqlf.col("value.last_reported"))
+            .withColumn("mechanical", pysqlf.col("num_bikes_available_types").getItem(0).getItem("mechanical"))
+            .withColumn("ebike", pysqlf.col("num_bikes_available_types").getItem(1).getItem("ebike"))
+            )
+
+```
+On calcule les indicateurs par code postal:
+```python
+indicators_df = (kafka_df
+                 .groupBy("stationCode")
+                 .agg(pysqlf.sum("num_bikes_available").alias("total_bikes_available"),
+                      pysqlf.sum("mechanical").alias("total_mechanical_bikes"),
+                      pysqlf.sum("ebike").alias("total_electric_bikes"))
+                 )
+```
+
 
 ### 6. Publication des Résultats
-Envoyez les résultats du traitement vers le topic Kafka velib-projet-final-data.
+Enfin, on prépare et on envoie les résultats du traitement vers le topic Kafka velib-projet-final-data.
 
+```python
+    # Préparer les données pour l'envoi vers Kafka
+    col_selections = ["stationCode", "total_bikes_available", "total_mechanical_bikes", "total_electric_bikes"]
+
+    df_out = (indicators_df
+              .withColumn("value", pysqlf.to_json(pysqlf.struct(*col_selections)))
+              .select("value")
+              )
+
+    # Écrire les résultats dans Kafka
+    out = (df_out
+           .writeStream
+           .format("kafka")
+           .queryName("velib-projet-final")
+           .option("kafka.bootstrap.servers", "localhost:9092")
+           .option("topic", "velib-projet-final-data")
+           .outputMode("append")
+           .option("checkpointLocation", "chk-point-dir")
+           .trigger(processingTime="1 minute")  
+           .start()
+           )
+
+    out.awaitTermination()
+```
+
+Lorsqu'on lance le programme via la commande `python spark-consumer.py` on obtient une sortie du style:
+```bash
+Project [value#175]
++- Project [stationCode#23, total_bikes_available#166L, total_mechanical_bikes#168L, total_electric_bikes#170L, to_json(struct(stationCode, stationCode#23, total_bikes_available, total_bikes_available#166L, total_mechanical_bikes, total_mechanical_bikes#168L, total_electric_bikes, total_electric_bikes#170L), Some(Etc/UTC)) AS value#175]
+   +- Aggregate [stationCode#23], [stationCode#23, sum(num_bikes_available#32) AS total_bikes_available#166L, sum(mechanical#122) AS total_mechanical_bikes#168L, sum(ebike#136) AS total_electric_bikes#170L]
+      ...
+```
+Dans cette partie de la sortie, on voit l'opération de projection et d'agrégation qui calcule les indicateurs par code postal.    
+Plus précisément :
+
+- **stationCode#23** est le code postal de la station.
+- **total_bikes_available#166L** représente le nombre total de vélos disponibles par code postal.
+- **total_mechanical_bikes#168L** représente le nombre total de vélos mécaniques disponibles par code postal.
+- **total_electric_bikes#170L** représente le nombre total de vélos électriques disponibles par code postal.

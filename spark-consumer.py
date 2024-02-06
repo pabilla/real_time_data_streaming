@@ -70,25 +70,19 @@ if __name__ == "__main__":
                           pysqlf.sum("ebike").alias("total_electric_bikes"))
                      )
 
-    # Préparer les données pour l'envoi vers Kafka
-    col_selections = ["stationCode", "total_bikes_available", "total_mechanical_bikes", "total_electric_bikes"]
+    # Ajouter la colonne "timestamp" au début du DataFrame
+    indicators_df = indicators_df.withColumn("timestamp", pysqlf.current_timestamp())
 
-    df_out = (indicators_df
-              .withColumn("value", pysqlf.to_json(pysqlf.struct(*col_selections)))
-              .select("value")
-              )
+    # Réorganiser l'ordre des colonnes pour placer "timestamp" au début
+    col_order = ["timestamp", "stationCode", "total_bikes_available", "total_mechanical_bikes", "total_electric_bikes"]
+    indicators_df = indicators_df.select(*col_order)
+    
+    # Afficher les résultats dans la sortie Python
+    query = (indicators_df
+            .writeStream
+            .outputMode("complete")
+            .format("console")
+            .start()
+            )
 
-    # Écrire les résultats dans Kafka
-    out = (df_out
-           .writeStream
-           .format("kafka")
-           .queryName("velib-projet-final")
-           .option("kafka.bootstrap.servers", "localhost:9092")
-           .option("topic", "velib-projet-final-data")
-           .outputMode("append")
-           .option("checkpointLocation", "chk-point-dir")
-           .trigger(processingTime="1 minute")  
-           .start()
-           )
-
-    out.awaitTermination()
+    query.awaitTermination()            
