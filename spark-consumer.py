@@ -9,7 +9,7 @@ import pyspark.sql.functions as pysqlf
 import pyspark.sql.types as pysqlt
 
 if __name__ == "__main__":
-    # Initialiser Spark
+    # Initialising Spark
     spark = (SparkSession
              .builder
              .appName("velib-analysis")
@@ -19,7 +19,7 @@ if __name__ == "__main__":
              .getOrCreate()
              )
 
-    # Lire les données en temps réel depuis Kafka
+    # Get data from Kafka in real time
     kafka_df = (spark
                 .readStream
                 .format("kafka")
@@ -29,7 +29,7 @@ if __name__ == "__main__":
                 .load()
                 )
 
-    # Appliquer des traitements sur les données
+    # Apply data processing
     schema = pysqlt.StructType([
         pysqlt.StructField("stationCode", pysqlt.StringType()),
         pysqlt.StructField("station_id", pysqlt.StringType()),
@@ -61,13 +61,13 @@ if __name__ == "__main__":
                 .withColumn("ebike", pysqlf.col("num_bikes_available_types").getItem(1).getItem("ebike"))
                 )
 
-    # Lire le fichier stations_information.csv
+    # Get data from stations_information.csv
     stations_info_df = (spark
                         .read
                         .csv("stations_information.csv", header=True, inferSchema=True)
                         )
 
-    # Calculer les indicateurs par code postal
+    # Calculate indicators by postcode
     indicators_df = (kafka_df
                      .groupBy("station_id")
                      .agg(pysqlf.sum("num_bikes_available").alias("total_bikes_available"),
@@ -75,20 +75,20 @@ if __name__ == "__main__":
                           pysqlf.sum("ebike").alias("total_electric_bikes"))
                      )
 
-    # Joindre les DataFrames en utilisant station_id comme clé
+    # Join DataFrames using station_id as key
     indicators_df_with_postcode = (indicators_df
                                    .join(stations_info_df.select("station_id", "postcode"), ["station_id"], "left")
                                    .drop("station_id")
                                    )
 
-    # Ajouter la colonne "timestamp" au début du DataFrame
+    # Add "timestamp" column
     indicators_df_with_postcode = indicators_df_with_postcode.withColumn("timestamp", pysqlf.current_timestamp())
 
-    # Réorganiser l'ordre des colonnes
+    # Set columns order
     col_order = ["timestamp", "postcode", "total_bikes_available", "total_mechanical_bikes", "total_electric_bikes"]
     indicators_df_with_postcode = indicators_df_with_postcode.select(*col_order)
     
-    # Afficher les résultats dans la sortie Python
+    # Display results in Python output
     query_console = (indicators_df_with_postcode
             .writeStream
             .outputMode("complete")
@@ -96,7 +96,7 @@ if __name__ == "__main__":
             .start()
             )
 
-    # Envoyer les résultats vers le topic Kafka
+    # Send results to the Kafka topic
     query_kafka = (indicators_df_with_postcode
             .writeStream
             .outputMode("complete")
@@ -108,4 +108,3 @@ if __name__ == "__main__":
             )
 
     query_console.awaitTermination()
-

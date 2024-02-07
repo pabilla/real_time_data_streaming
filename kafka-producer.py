@@ -3,13 +3,13 @@ import time
 import requests
 from kafka import KafkaProducer
 
-# To do: Créer via l'invite de commande un topic velib-projet et un topic velib-projet-final-data
+# To do: Use the command prompt to create a velib-project topic and a velib-project-final-data topic
 """
 ./kafka_2.12-2.6.0/bin/kafka-topics.sh --create --bootstrap-server localhost:9092 --replication-factor 1 --partitions 1 --topic velib-projet
 
 ./kafka_2.12-2.6.0/bin/kafka-topics.sh --create --bootstrap-server localhost:9092 --replication-factor 1 --partitions 1 --topic velib-projet-final-data
 """
-# On peut vérifier la liste des Topics avec la commande:
+# You can check the list of Topics using the command:
 """
 ./kafka_2.12-2.6.0/bin/kafka-topics.sh --list --bootstrap-server localhost:9092
 """
