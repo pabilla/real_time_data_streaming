@@ -47,7 +47,6 @@ if __name__ == "__main__":
 
     kafka_df = (kafka_df
                 .select(pysqlf.from_json(pysqlf.col("value").cast("string"), schema).alias("value"))
-                .withColumn("stationCode", pysqlf.col("value.stationCode"))
                 .withColumn("station_id", pysqlf.col("value.station_id"))
                 .withColumn("num_bikes_available", pysqlf.col("value.num_bikes_available"))
                 .withColumn("numBikesAvailable", pysqlf.col("value.numBikesAvailable"))
@@ -62,27 +61,39 @@ if __name__ == "__main__":
                 .withColumn("ebike", pysqlf.col("num_bikes_available_types").getItem(1).getItem("ebike"))
                 )
 
+    # Lire le fichier stations_information.csv
+    stations_info_df = (spark
+                        .read
+                        .csv("stations_information.csv", header=True, inferSchema=True)
+                        )
+
     # Calculer les indicateurs par code postal
     indicators_df = (kafka_df
-                     .groupBy("stationCode")
+                     .groupBy("station_id")
                      .agg(pysqlf.sum("num_bikes_available").alias("total_bikes_available"),
                           pysqlf.sum("mechanical").alias("total_mechanical_bikes"),
                           pysqlf.sum("ebike").alias("total_electric_bikes"))
                      )
 
-    # Ajouter la colonne "timestamp" au début du DataFrame
-    indicators_df = indicators_df.withColumn("timestamp", pysqlf.current_timestamp())
+    # Joindre les DataFrames en utilisant station_id comme clé
+    indicators_df_with_postcode = (indicators_df
+                                   .join(stations_info_df.select("station_id", "postcode"), ["station_id"], "left")
+                                   .drop("station_id")
+                                   )
 
-    # Réorganiser l'ordre des colonnes pour placer "timestamp" au début
-    col_order = ["timestamp", "stationCode", "total_bikes_available", "total_mechanical_bikes", "total_electric_bikes"]
-    indicators_df = indicators_df.select(*col_order)
+    # Ajouter la colonne "timestamp" au début du DataFrame
+    indicators_df_with_postcode = indicators_df_with_postcode.withColumn("timestamp", pysqlf.current_timestamp())
+
+    # Réorganiser l'ordre des colonnes
+    col_order = ["timestamp", "postcode", "total_bikes_available", "total_mechanical_bikes", "total_electric_bikes"]
+    indicators_df_with_postcode = indicators_df_with_postcode.select(*col_order)
     
     # Afficher les résultats dans la sortie Python
-    query = (indicators_df
+    query = (indicators_df_with_postcode
             .writeStream
             .outputMode("complete")
             .format("console")
             .start()
             )
 
-    query.awaitTermination()            
+    query.awaitTermination()
