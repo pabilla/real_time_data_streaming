@@ -89,11 +89,23 @@ if __name__ == "__main__":
     indicators_df_with_postcode = indicators_df_with_postcode.select(*col_order)
     
     # Afficher les résultats dans la sortie Python
-    query = (indicators_df_with_postcode
+    query_console = (indicators_df_with_postcode
             .writeStream
             .outputMode("complete")
             .format("console")
             .start()
             )
 
-    query.awaitTermination()
+    # Envoyer les résultats vers le topic Kafka
+    query_kafka = (indicators_df_with_postcode
+            .writeStream
+            .outputMode("complete")
+            .format("kafka")
+            .option("kafka.bootstrap.servers", "localhost:9092")
+            .option("topic", "velib-projet-final-data")
+            .option("checkpointLocation", "/tmp/checkpoint")
+            .start()
+            )
+
+    query_console.awaitTermination()
+
